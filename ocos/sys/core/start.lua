@@ -2,29 +2,39 @@
 
 -- print, write, error, panic, len, getColor, setColor, setCursorPos, getCursorPos, log, fs.*, os.*, clearScreen are here
 
+local args = {...}
+osDir = args[1]
+
 function os.version()
     return _version
 end
 
 clearScreen()
-setCursorPos(1,1)
+term.setCursorPos(1,1)
 log("Booting " .. os.version())
 
-log("Registering path resolver...")
-function resolvePath(path)
-    local rtn = path
-    if rtn:sub(1,1) == "/" then
-        rtn = osDir .. rtn
-    end
-    local rootFiles = fs.list("/")
-    while rtn:sub(1,2) == ".." and fs.list(rtn) == rootFiles do
-        rtn = rtn:sub(3)
-    end
+log("Cleaning up term API")
+local t = term
+_G.term = nil
+
+for i=1, #t, 1 do
+    table.insert()
+end
+
+log("Registering path resolver")
+function os.resolvePath(path)
+    local rtn = osDir .. path
 
     return rtn
 end
 
-log("Registering system-protected folders...")
+local resolvePath = os.resolvePath
+
+log("Loading errors API")
+
+os.loadAPI(osDir .. "/sys/apis/errors.lua")
+
+log("Registering system-protected folders")
 local protected = {
     osDir .. "sys/",
     osDir .. "sys/core/",
@@ -34,7 +44,7 @@ local protected = {
     "/programs/"
 }
 
-log("Wrapping fs.open in preparation for multiuser...")
+log("Wrapping fs.open in preparation for multiuser")
 
 local nativeOpen = fs.open
 
@@ -47,11 +57,11 @@ function fs.open(f, mode)
         end
     end
     if root then
-        if _G.__user__ == "root" and _G.__uid__ == 0 then
+        if users.user() == "root" and users.uid() == 0 then
             local h = nativeOpen(file, mode)
             return h
         else
-            error("Permission denied")
+            errors.accessDenied()
             return nil
         end
     else
@@ -60,7 +70,7 @@ function fs.open(f, mode)
     end
 end
 
-log("Wrapping fs.exists for sandboxing purposes...")
+log("Wrapping fs.exists for sandboxing purposes")
 
 local nativeExists = fs.exists
 
@@ -73,90 +83,56 @@ function fs.exists(p)
     end
 end
 
-log("Initializing run()...")
+log("Wrapping fs.list")
 
-function run(file)
-    if fs.exists(file) then
-        os.run(_G, file)
+local nativeList = fs.list
+
+function fs.list(dir)
+    local path = resolvePath(dir)
+    if fs.exists(dir) then
+        return nativeList(path)
     else
-        error("File not found: " .. file)
+        return {""}
+    end
+end
+
+log("Initializing run()")
+
+function run(file, args)
+    if fs.exists(file) then
+        os.run(_G, file, args)
+    else
+        errors.fileNotFound(file)
         return nil
     end
 end
 
-log("Initializing networking: check HTTP, set hostname")
-
-_G.net = {}
+log("Initializing networking: check for HTTP, set hostname")
 
 if not http then
-    log("No HTTP")
+    errors.APINotFound("HTTP")
 end
 
-log("Initializing user subsystem...")
+os.loadAPI("/sys/apis/net.lua")
 
-_G.__user__ = "root"
-_G.__uid__ = 0
-
-_G.users = {}
-
-local root_password = "root" -- Shhhh, don't tell anyone!
-
-function users.login(user, passwd)
-    local function x(file)
-        local handle = fs.open("/sys/userdata/" .. file)
-        if not handle then
-            return nil
-        end
-
-        local data = {}
-
-        while true do
-            local line = handle:readLine()
-            if line and line ~= "" then
-                table.insert(data,line)
-            else
-                break
-            end
-        end
-        handle.close()
-        return data
-    end
-
-    local names = x("names")
-    local passwords = x("passwords")
-
-    for i=1, #names, 1 do
-        if names[i] == user then
-            if passwords[i] == passwd then
-                _G.__user__ = user
-                _G.__uid__ = i
-                return true -- Success! We're logged in.
-            else
-                return false -- Better luck next time.
-            end
-        end
-    end
-    if user == "root" and passwd == root_password then
-        __user__ = "root"
-        __uid__ = 0
-    end
+if fs.exists("/sys/hostname") then
+    local h = fs.open("/sys/hostname", "r")
+    net.setHostname(h.readLine())
+    log("Set hostname to " .. net.hostname())
+    h.close()
+else
+    log("/sys/hostname not found. Setting hostname to ocos")
+    net.setHostname("ocos")
 end
 
-function users.logout()
-    _G.__user__ = ""
-    _G.__uid__ = -1
-end
+log("Initializing user subsystem")
+os.loadAPI("/sys/apis/users.lua")
 
-function users.homeDir(user)
-    return resolvePath("/users/" .. user .. "/")
-end
-
-log("Initializing shell API...")
-
+log("Initializing shell API")
 os.loadAPI("/sys/apis/shell.lua")
 
-if not shell then panic("OC-OS Shell could not be loaded") end
+if not shell then panic("The OC-OS Shell API could not be loaded") end
 
-log("Initializing login system...")
+log("Initializing login system")
 
 run("/programs/login.lua")

@@ -34,18 +34,20 @@ _OS_ENV.colors = colors
 _OS_ENV.read = read
 _OS_ENV.os = os
 _OS_ENV.fs = fs
-_OS_ENV.setColor = term.setPaletteColor
-_OS_ENV.getColor = term.getPaletteColor
-_OS_ENV.setCursorPos = term.setCursorPos
-_OS_ENV.getCursorPos = term.getCursorPos
+_OS_ENV.term = term
 _OS_ENV.log = log
 _OS_ENV.clearScreen = term.clear
 _OS_ENV.len = string.len
 
+log(" Setting up metatable _OS_ENV...")
+_OS_ENV._G = _OS_ENV
+_OS_ENV._ENV = _OS_ENV
+
 function _OS_ENV.error(msg)
+    local oldColor = term.getColor()
     term.setTextColor(colors.red)
     print(msg)
-    term.setTextColor(colors.white)
+    term.setTextColor(oldColor)
 end
 
 log("Initialized sandbox")
@@ -57,4 +59,4 @@ if not fs.exists(_OS_ENV.osDir .. "sys/core/start.lua") then
     error("Critical system file missing; cannot continue")
 end
 
-os.run(_OS_ENV, _OS_ENV.osDir .. "sys/core/start.lua")
+os.run(_OS_ENV, _OS_ENV.osDir .. "sys/core/start.lua", _OS_ENV.osDir)

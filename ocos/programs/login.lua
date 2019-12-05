@@ -11,5 +11,9 @@ while true do
         local pswd = read("*")
         if users.login(name, pswd) then break end
     end
-    run("/programs/oc-shell.lua")
+    if fs.exists("/programs/oc-shell.lua") then
+        run("/programs/oc-shell.lua")
+    else
+        errors.fileNotFound("/programs/oc-shell.lua")
+    end
 end
